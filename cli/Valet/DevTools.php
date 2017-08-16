@@ -12,6 +12,7 @@ class DevTools
     var $files;
     var $configuration;
     var $site;
+    var $mysql;
 
     var $taps = [
         'homebrew/homebrew-php'
@@ -20,21 +21,22 @@ class DevTools
     /**
      * Create a new Nginx instance.
      *
-     * @param  Brew  $brew
-     * @param  CommandLine  $cli
-     * @param  Filesystem  $files
-     * @param  Configuration  $configuration
-     * @param  Site  $site
-     * @return void
+     * @param  Brew $brew
+     * @param  CommandLine $cli
+     * @param  Filesystem $files
+     * @param  Configuration $configuration
+     * @param  Site $site
+     * @param Mysql $mysql
      */
     function __construct(Brew $brew, CommandLine $cli, Filesystem $files,
-                         Configuration $configuration, Site $site)
+                         Configuration $configuration, Site $site, Mysql $mysql)
     {
         $this->cli = $cli;
         $this->brew = $brew;
         $this->site = $site;
         $this->files = $files;
         $this->configuration = $configuration;
+        $this->mysql = $mysql;
     }
 
     /**
@@ -45,13 +47,21 @@ class DevTools
     function install()
     {
         $tools = ['wp-cli', 'n98-magerun', 'n98-magerun2', 'pv'];
-        info('Installing developer tools...');
+        info('[devtools] Installing');
 
         foreach($tools as $tool) {
             if($this->brew->installed($tool)) {
-                info($tool.' already installed');
+                info('[devtools] '.$tool.' already installed');
             } else {
                 $this->brew->ensureInstalled($tool, [], $this->taps);
+            }
+
+            if($tool === 'n98-magerun') {
+                $this->files->symlinkAsUser('/usr/local/bin/n98-magerun', '/usr/local/bin/magerun');
+            }
+
+            if($tool === 'n98-magerun') {
+                $this->files->symlinkAsUser('/usr/local/bin/n98-magerun2', '/usr/local/bin/magerun2');
             }
         }
     }
@@ -62,7 +72,7 @@ class DevTools
     }
 
     function phpstorm() {
-        info('Opening PHPstorm...');
+        info('Opening PHPstorm');
         $command = false;
 
         if($this->files->exists('/usr/local/bin/pstorm')) {
@@ -85,7 +95,7 @@ class DevTools
     }
 
     function vscode() {
-        info('Opening Visual Studio Code...');
+        info('Opening Visual Studio Code');
         $command = false;
 
         if($this->files->exists('/usr/local/bin/code')) {
@@ -108,7 +118,7 @@ class DevTools
     }
 
     function tower() {
-        info('Opening git tower...');      
+        info('Opening git tower');
         if(!$this->files->exists('/Applications/Tower.app/Contents/MacOS/gittower')) {
             throw new Exception('gittower command not found. Please install gittower by following the instructions provided here: https://www.git-tower.com/help/mac/integration/cli-tool');
         }
@@ -129,15 +139,9 @@ class DevTools
         $domain = $this->site->host(getcwd()).'.'.$this->configuration->read()['domain'];
         $isSecure = in_array($domain, $secured);
         $url = ($isSecure ? 'https://' : 'http://') . $domain;
-
-        if(get_class($driver) === 'Magento2ValetDriver') {
-            info('Configuring Magento 2...');
-            
-            $this->cli->passthru('n98-magerun2 config:set web/unsecure/base_url ' . $url . '/');
-            $this->cli->passthru('n98-magerun2 config:set web/secure/base_url ' . $url . '/');
-            $this->cli->passthru('n98-magerun2 config:set catalog/search/elasticsearch_server_hostname 127.0.0.1');
-
-            return info('Configured Magento 2');
+        
+        if(method_exists($driver, 'configure')) {
+            return $driver->configure($this, $url);
         }
 
         info('No configuration settings found.');

@@ -12,9 +12,8 @@ class Brew
     /**
      * Create a new Brew instance.
      *
-     * @param  CommandLine  $cli
-     * @param  Filesystem  $files
-     * @return void
+     * @param  CommandLine $cli
+     * @param  Filesystem $files
      */
     function __construct(CommandLine $cli, Filesystem $files)
     {
@@ -40,19 +39,24 @@ class Brew
      */
     function hasInstalledPhp()
     {
-        return $this->supportedPhpVersions()->contains(function ($version) {
-            return $this->installed($version);
-        });
+        $versions = $this->supportedPhpVersions();
+        foreach($versions as $version) {
+            if($this->installed($version)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
      * Get a list of supported PHP versions
      *
-     * @return \Illuminate\Support\Collection
+     * @return array
      */
     function supportedPhpVersions()
     {
-        return collect(['php72', 'php71', 'php70', 'php56']);
+        return ['php72', 'php71', 'php70', 'php56'];
     }
 
     /**
@@ -101,13 +105,11 @@ class Brew
      */
     function installOrFail($formula, $options = [], $taps = [])
     {
-        info("Installing {$formula}...");
+        info('['.$formula.'] Installing');
 
         if (count($taps) > 0) {
             $this->tap($taps);
         }
-
-        output('<info>['.$formula.'] is not installed, installing it now via Brew...</info> 🍻');
 
         $this->cli->runAsUser(trim('brew install '.$formula.' '.implode(' ', $options)), function ($exitCode, $errorOutput) use ($formula) {
             output($errorOutput);
@@ -142,7 +144,7 @@ class Brew
 
         foreach ($services as $service) {
             if ($this->installed($service)) {
-                info("Restarting {$service}...");
+                info('['.$service.'] Restarting');
 
                 $this->cli->quietly('sudo brew services stop '.$service);
                 $this->cli->quietly('sudo brew services start '.$service);
@@ -161,7 +163,7 @@ class Brew
 
         foreach ($services as $service) {
             if ($this->installed($service)) {
-                info("Stopping {$service}...");
+                info('['.$service.'] Stopping');
 
                 $this->cli->quietly('sudo brew services stop '.$service);
             }
@@ -181,11 +183,15 @@ class Brew
 
         $resolvedPath = $this->files->readLink('/usr/local/bin/php');
 
-        return $this->supportedPhpVersions()->first(function ($version) use ($resolvedPath) {
-            return strpos($resolvedPath, $version) !== false;
-        }, function () {
-            throw new DomainException("Unable to determine linked PHP.");
-        });
+        $versions = $this->supportedPhpVersions();
+
+        foreach($versions as $version) {
+            if(strpos($resolvedPath, $version) !== false) {
+                return $version;
+            }
+        }
+
+        throw new DomainException("Unable to determine linked PHP.");
     }
 
     /**

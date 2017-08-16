@@ -16,12 +16,11 @@ class Nginx
     /**
      * Create a new Nginx instance.
      *
-     * @param  Brew  $brew
-     * @param  CommandLine  $cli
-     * @param  Filesystem  $files
-     * @param  Configuration  $configuration
-     * @param  Site  $site
-     * @return void
+     * @param  Brew $brew
+     * @param  CommandLine $cli
+     * @param  Filesystem $files
+     * @param  Configuration $configuration
+     * @param  Site $site
      */
     function __construct(Brew $brew, CommandLine $cli, Filesystem $files,
                          Configuration $configuration, Site $site)
@@ -34,7 +33,7 @@ class Nginx
     }
 
     /**
-     * Install the configuration files for Nginx.
+     * Install service.
      *
      * @return void
      */
@@ -50,14 +49,12 @@ class Nginx
     }
 
     /**
-     * Install the Nginx configuration file.
+     * Install the configuration files.
      *
      * @return void
      */
     function installConfiguration()
     {
-        info('Installing nginx configuration...');
-
         $contents = $this->files->get(__DIR__.'/../stubs/nginx.conf');
 
         $this->files->putAsUser(
@@ -67,7 +64,7 @@ class Nginx
     }
 
     /**
-     * Install the Valet Nginx server configuration file.
+     * Install the Valet server configuration file.
      *
      * @return void
      */
@@ -85,13 +82,23 @@ class Nginx
         );
 
         $this->files->putAsUser(
+            '/usr/local/etc/nginx/valet/mailhog.conf',
+            $this->files->get(__DIR__.'/../stubs/mailhog.conf')
+        );
+
+        $this->files->putAsUser(
+            '/usr/local/etc/nginx/valet/elasticsearch.conf',
+            $this->files->get(__DIR__.'/../stubs/elasticsearch.conf')
+        );
+
+        $this->files->putAsUser(
             '/usr/local/etc/nginx/fastcgi_params',
             $this->files->get(__DIR__.'/../stubs/fastcgi_params')
         );
     }
 
     /**
-     * Install the Nginx configuration directory to the ~/.valet directory.
+     * Install the configuration directory to the ~/.valet directory.
      *
      * This directory contains all site-specific Nginx servers.
      *
@@ -99,8 +106,6 @@ class Nginx
      */
     function installNginxDirectory()
     {
-        info('Installing nginx directory...');
-
         if (! $this->files->isDir($nginxDirectory = VALET_HOME_PATH.'/Nginx')) {
             $this->files->mkdirAsUser($nginxDirectory);
         }
@@ -136,7 +141,7 @@ class Nginx
     }
 
     /**
-     * Restart the Nginx service.
+     * Restart the service.
      *
      * @return void
      */
@@ -148,19 +153,19 @@ class Nginx
     }
 
     /**
-     * Stop the Nginx service.
+     * Stop the service.
      *
      * @return void
      */
     function stop()
     {
-        info('Stopping nginx....');
+        info('[nginx] Stopping');
 
         $this->cli->quietly('sudo brew services stop '. $this->brew->nginxServiceName());
     }
 
     /**
-     * Prepare Nginx for uninstallation.
+     * Prepare for uninstallation.
      *
      * @return void
      */

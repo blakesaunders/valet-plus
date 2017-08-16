@@ -37,12 +37,13 @@ class Elasticsearch
     function install()
     {
         if ($this->installed()) {
-            info('Elasticsearch was already installed');
+            info('[elasticsearch] already installed');
             return;
         }
 
         $this->cli->quietlyAsUser('brew cask install java');
         $this->brew->installOrFail('elasticsearch@2.4');
+        $this->restart();
     }
 
     function installed() {
@@ -60,7 +61,7 @@ class Elasticsearch
             return;
         }
 
-        info('Restarting elasticsearch...');
+        info('[elasticsearch] Restarting');
         $this->cli->quietlyAsUser('brew services restart elasticsearch@2.4');
     }
 
@@ -75,7 +76,7 @@ class Elasticsearch
             return;
         }
 
-        info('Stopping elasticsearch....');
+        info('[elasticsearch] Stopping');
         $this->cli->quietly('sudo brew services stop elasticsearch@2.4');
         $this->cli->quietlyAsUser('brew services stop elasticsearch@2.4');
     }

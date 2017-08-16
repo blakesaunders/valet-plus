@@ -12,15 +12,16 @@ if (file_exists(__DIR__.'/../vendor/autoload.php')) {
 
 use Silly\Application;
 use Illuminate\Container\Container;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 /**
  * Create the application.
  */
 Container::setInstance(new Container);
 
-$version = '2.0.4';
+$version = '1.0.0';
 
-$app = new Application('Laravel Valet', $version);
+$app = new Application('Valet+', $version);
 
 /**
  * Prune missing directories and symbolic links on every command.
@@ -34,7 +35,7 @@ if (is_dir(VALET_HOME_PATH)) {
 /**
  * Allow Valet to be run more conveniently by allowing the Node proxy to run password-less sudo.
  */
-$app->command('install', function () {
+$app->command('install [--with-mariadb]', function ($withMariadb) {
     Nginx::stop();
     PhpFpm::stop();
     Mysql::stop();
@@ -45,7 +46,7 @@ $app->command('install', function () {
     Nginx::install();
     PhpFpm::install();
     DnsMasq::install();
-    Mysql::install();
+    Mysql::install($withMariadb ? 'mariadb' : 'mysql');
     Redis::install();
     Mailhog::install();
     Nginx::restart();
@@ -102,14 +103,39 @@ if (is_dir(VALET_HOME_PATH)) {
      * Register a symbolic link with Valet.
      */
     $app->command('link [name] [--secure]', function ($name, $secure) {
-        $linkPath = Site::link(getcwd(), $name = $name ?: basename(getcwd()));
-
-        info('A ['.$name.'] symbolic link has been created in ['.$linkPath.'].');
+        $domain = Site::link(getcwd(), $name = $name ?: basename(getcwd()));
 
         if ($secure) {
             $this->runCommand('secure '.$name);
         }
+
+        info('Current working directory linked to '.$domain);
     })->descriptions('Link the current working directory to Valet');
+
+    /**
+     * Register a subdomain link with Valet.
+     */
+    $app->command('subdomain [action] [name] [--secure]', function ($action, $name, $secure) {
+        if($action === 'list') {
+            $links = Site::links(basename(getcwd()));
+
+            table(['Site', 'SSL', 'URL', 'Path'], $links->all());
+            return;
+        }
+
+        if($action === 'add') {
+            $domain = Site::link(getcwd(), $name.'.'.basename(getcwd()));
+
+            if ($secure) {
+                $this->runCommand('secure '. $name);
+            }
+
+            info('Current working directory linked to '.$domain);
+            return;
+        }
+
+        throw new DomainException('Specified command not found');
+    })->descriptions('Manage subdomains');
 
     /**
      * Display all of the registered symbolic links.
@@ -213,43 +239,134 @@ if (is_dir(VALET_HOME_PATH)) {
     /**
      * Start the daemon services.
      */
-    $app->command('start', function () {
-        PhpFpm::restart();
-        Nginx::restart();
-        Mysql::restart();
-        Redis::restart();
-        Mailhog::restart();
-        Elasticsearch::restart();
+    $app->command('start [services]*', function ($services) {
+        if(empty($services)) {
+            PhpFpm::restart();
+            Nginx::restart();
+            Mysql::restart();
+            Redis::restart();
+            Mailhog::restart();
+            Elasticsearch::restart();
+            info('Valet services have been started.');
+            return;
+        }
 
-        info('Valet services have been started.');
+        foreach($services as $service) {
+            switch($service) {
+                case 'nginx': {
+                    Nginx::restart();
+                    break;
+                }
+                case 'mysql':
+                case 'mariadb': {
+                    Mysql::restart();
+                    break;
+                }
+                case 'php': {
+                    PhpFpm::restart();
+                    break;
+                }
+                case 'mailhog': {
+                    Mailhog::restart();
+                    break;
+                }
+                case 'elasticsearch': {
+                    Elasticsearch::restart();
+                    break;
+                }
+            }
+        }
+
+        info('Specified Valet services have been started.');
     })->descriptions('Start the Valet services');
 
     /**
      * Restart the daemon services.
      */
-    $app->command('restart', function () {
-        PhpFpm::restart();
-        Nginx::restart();
-        Mysql::restart();
-        Redis::restart();
-        Mailhog::restart();
-        Elasticsearch::restart();
+    $app->command('restart [services]*', function ($services) {
+        if(empty($services)) {
+            PhpFpm::restart();
+            Nginx::restart();
+            Mysql::restart();
+            Redis::restart();
+            Mailhog::restart();
+            Elasticsearch::restart();
+            info('Valet services have been started.');
+            return;
+        }
 
-        info('Valet services have been restarted.');
+        foreach($services as $service) {
+            switch($service) {
+                case 'nginx': {
+                    Nginx::restart();
+                    break;
+                }
+                case 'mysql': {
+                    Mysql::restart();
+                    break;
+                }
+                case 'php': {
+                    PhpFpm::restart();
+                    break;
+                }
+                case 'mailhog': {
+                    Mailhog::restart();
+                    break;
+                }
+                case 'elasticsearch': {
+                    Elasticsearch::restart();
+                    break;
+                }
+            }
+        }
+
+        info('Specified Valet services have been started.');
     })->descriptions('Restart the Valet services');
 
     /**
      * Stop the daemon services.
      */
-    $app->command('stop', function () {
-        PhpFpm::stop();
-        Nginx::stop();
-        Mysql::stop();
-        Redis::stop();
-        Mailhog::stop();
-        Elasticsearch::stop();
+    /**
+     * Start the daemon services.
+     */
+    $app->command('stop [services]*', function ($services) {
+        if(empty($services)) {
+            PhpFpm::stop();
+            Nginx::stop();
+            Mysql::stop();
+            Redis::stop();
+            Mailhog::stop();
+            Elasticsearch::stop();
+            info('Valet services have been stopped.');
+            return;
+        }
 
-        info('Valet services have been stopped.');
+        foreach($services as $service) {
+            switch($service) {
+                case 'nginx': {
+                    Nginx::stop();
+                    break;
+                }
+                case 'mysql': {
+                    Mysql::stop();
+                    break;
+                }
+                case 'php': {
+                    PhpFpm::stop();
+                    break;
+                }
+                case 'mailhog': {
+                    Mailhog::stop();
+                    break;
+                }
+                case 'elasticsearch': {
+                    Elasticsearch::stop();
+                    break;
+                }
+            }
+        }
+
+        info('Specified Valet services have been stopped.');
     })->descriptions('Stop the Valet services');
 
     /**
@@ -280,12 +397,8 @@ if (is_dir(VALET_HOME_PATH)) {
      * Switch between versions of PHP
      */
     $app->command('use [phpVersion]', function ($phpVersion) {
-        PhpFpm::stop();
-        Nginx::stop();
         $switched = PhpFpm::switchTo($phpVersion);
 
-        PhpFpm::restart();
-        Nginx::restart();
         if(!$switched) {
             info('Already on this version');
             return;
@@ -296,7 +409,14 @@ if (is_dir(VALET_HOME_PATH)) {
     /**
      * Create database
      */
-    $app->command('db [run] [name] [optional]', function ($run, $name, $optional) {
+    $app->command('db [run] [name] [optional]', function ($input, $output, $run, $name, $optional) {
+        $helper = $this->getHelperSet()->get('question');
+
+        if($run === 'list' || $run === 'ls') {
+            Mysql::listDatabases();
+            return;
+        }
+
         if($run === 'create') {
             $databaseName = Mysql::createDatabase($name);
 
@@ -309,6 +429,11 @@ if (is_dir(VALET_HOME_PATH)) {
         }
 
         if($run === 'drop') {
+            $question = new ConfirmationQuestion('Are you sure you want to delete the database? [y/N] ', false);
+            if (!$helper->ask($input, $output, $question)) {
+                warning('Aborted');
+                return;
+            }
             $databaseName = Mysql::dropDatabase($name);
 
             if(!$databaseName) {
@@ -320,6 +445,12 @@ if (is_dir(VALET_HOME_PATH)) {
         }
 
         if($run === 'reset') {
+            $question = new ConfirmationQuestion('Are you sure you want to reset the database? [y/N] ', false);
+            if (!$helper->ask($input, $output, $question)) {
+                warning('Aborted');
+                return;
+            }
+
             $dropped = Mysql::dropDatabase($name);
 
             if(!$dropped) {
@@ -356,6 +487,20 @@ if (is_dir(VALET_HOME_PATH)) {
             return;
         }
 
+        if($run === 'reimport') {
+            $question = new ConfirmationQuestion('Are you sure you want to reimport the database? [y/N] ', false);
+            if (!$helper->ask($input, $output, $question)) {
+                warning('Aborted');
+                return;
+            }
+            info('Resetting database, importing database...');
+            if(!$name) {
+                throw new Exception('Please provide a dump file');
+            }
+            Mysql::reimportDatabase($name, $optional);
+            return;
+        }
+
         if($run === 'export' || $run === 'dump') {
             info('Exporting database...');
             $data = Mysql::exportDatabase($name, $optional);
@@ -364,25 +509,49 @@ if (is_dir(VALET_HOME_PATH)) {
         }
         
         throw new Exception('Command not found');
-    })->descriptions('Database commands (create, open)');
+    })->descriptions('Database commands (list/ls, create, drop, reset, open, import, reimport, export/dump)');
 
     $app->command('configure', function () {
         DevTools::configure();
     })->descriptions('Configure application connection settings');
 
     $app->command('xdebug [mode]', function ($mode) {
-        if($mode === 'on' || $mode === 'disable') {
-            PhpFpm::enableXdebug();
+        if($mode == '' || $mode == 'status') {
+            PhpFpm::isExtensionEnabled('xdebug');
+            return;
+        }
+
+        if($mode === 'on' || $mode === 'enable') {
+            PhpFpm::enableExtension('xdebug');
             return;
         }
         
         if($mode === 'off' || $mode === 'disable') {
-            PhpFpm::disableXdebug();            
+            PhpFpm::disableExtension('xdebug');            
             return;
         }
 
         throw new Exception('Mode not found. Available modes: on / off');
     })->descriptions('Enable / disable Xdebug');
+
+    $app->command('ioncube [mode]', function ($mode) {
+        if($mode == '' || $mode == 'status') {
+            PhpFpm::isExtensionEnabled('ioncubeloader');
+            return;
+        }
+
+        if($mode === 'on' || $mode === 'enable') {
+            PhpFpm::enableExtension('ioncubeloader');
+            return;
+        }
+
+        if($mode === 'off' || $mode === 'disable') {
+            PhpFpm::disableExtension('ioncubeloader');            
+            return;
+        }
+
+        throw new Exception('Mode not found. Available modes: on / off');
+    })->descriptions('Enable / disable ioncube');
 
     $app->command('elasticsearch [mode]', function ($mode) {
         if($mode === 'install' || $mode === 'on') {

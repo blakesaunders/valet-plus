@@ -12,7 +12,7 @@ class Redis
     const REDIS_CONF = '/usr/local/etc/redis.conf';
 
     /**
-     * Create a new Nginx instance.
+     * Create a new instance.
      *
      * @param  Brew $brew
      * @param  CommandLine $cli
@@ -53,7 +53,6 @@ class Redis
      */
     function installConfiguration()
     {
-        info('Installing redis configuration...');
         $this->files->copy(__DIR__.'/../stubs/redis.conf', static::REDIS_CONF);
     }
 
@@ -64,24 +63,24 @@ class Redis
      */
     function restart()
     {
-        info('Restarting redis...');
+        info('[redis] Restarting');
         $this->cli->quietlyAsUser('brew services restart redis');
     }
 
     /**
-     * Stop the Nginx service.
+     * Stop the service.
      *
      * @return void
      */
     function stop()
     {
-        info('Stopping redis....');
+        info('[redis] Stopping');
         $this->cli->quietly('sudo brew services stop redis');
         $this->cli->quietlyAsUser('brew services stop redis');
     }
 
     /**
-     * Prepare Redis for uninstallation.
+     * Prepare for uninstallation.
      *
      * @return void
      */

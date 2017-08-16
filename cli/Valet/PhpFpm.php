@@ -2,9 +2,7 @@
 
 namespace Valet;
 
-use Exception;
 use DomainException;
-use Symfony\Component\Process\Process;
 
 class PhpFpm
 {
@@ -17,10 +15,9 @@ class PhpFpm
     /**
      * Create a new PHP FPM class instance.
      *
-     * @param  Brew  $brew
-     * @param  CommandLine  $cli
-     * @param  Filesystem  $files
-     * @return void
+     * @param  Brew $brew
+     * @param  CommandLine $cli
+     * @param  Filesystem $files
      */
     function __construct(Brew $brew, CommandLine $cli, Filesystem $files)
     {
@@ -53,8 +50,6 @@ class PhpFpm
      */
     function updateConfiguration()
     {
-        info('Updating PHP configuration...');
-
         $contents = $this->files->get($this->fpmConfigPath());
 
         $contents = preg_replace('/^user = .+$/m', 'user = '.user(), $contents);
@@ -63,6 +58,7 @@ class PhpFpm
         $contents = preg_replace('/^;?listen\.owner = .+$/m', 'listen.owner = '.user(), $contents);
         $contents = preg_replace('/^;?listen\.group = .+$/m', 'listen.group = staff', $contents);
         $contents = preg_replace('/^;?listen\.mode = .+$/m', 'listen.mode = 0777', $contents);
+        $contents = preg_replace('/^;?php_admin_value\[error_log\] = .+$/m', 'php_admin_value[error_log] = '.VALET_HOME_PATH.'/Log/php.log', $contents);
 
         $this->files->put($this->fpmConfigPath(), $contents);
 
@@ -121,14 +117,19 @@ class PhpFpm
         return $confLookup[$this->brew->linkedPhp()];
     }
 
+    function getExtensions() {
+        return ['apcu', 'intl', 'mcrypt', 'opcache', 'geoip'];
+    }
+
     function installExtensions() {
-        $extensions = ['apcu', 'intl', 'mcrypt', 'opcache', 'geoip'];
+        $extensions = $this->getExtensions();
         $currentVersion = $this->brew->linkedPhp();
-        info('Install PHP extensions...');
+        info('['.$currentVersion.'] Installing extensions');
 
         foreach($extensions as $extension) {
             if($this->brew->installed($currentVersion.'-'.$extension)) {
-                info($currentVersion.'-'.$extension.' already installed');
+                $this->cli->runAsUser('brew link '. $currentVersion . '-' . $extension);
+                info('['.$currentVersion.'] '.$extension.' already installed');
             } else {
                 $this->brew->ensureInstalled($currentVersion.'-'.$extension, [], $this->taps);
             }
@@ -138,12 +139,13 @@ class PhpFpm
     /**
      * Switch between versions of installed PHP
      *
-     * @return void
+     * @return bool
      */
     function switchTo($version)
     {
         $version = preg_replace('/[.]/','',$version);
-        $versions = ['72', '71', '70', '56'];
+        $versions = ['71', '70', '56'];
+        $extensions = $this->getExtensions();
         $currentVersion = $this->brew->linkedPhp();
 
         if('php'.$version === $currentVersion) {
@@ -155,54 +157,82 @@ class PhpFpm
         }
 
         $this->cli->passthru('brew unlink '. $currentVersion);
+        $this->cli->passthru('sudo ln -s /usr/local/Cellar/jpeg/8d/lib/libjpeg.8.dylib /usr/local/opt/jpeg/lib/libjpeg.8.dylib');
+
+        foreach($versions as $phpversion) {
+            foreach($extensions as $extension) {
+                $this->cli->runAsUser('brew unlink php'.$phpversion.'-'.$extension);
+            }
+        }
 
         if (!$this->brew->installed('php'.$version)) {
             $this->brew->ensureInstalled('php'.$version);
         }
 
         $this->cli->passthru('brew link php'.$version);
-        $this->cli->passthru('valet install');
+        $this->stop();
+        $this->install();
         return true;
     }
 
-    function enableXdebug() {
+    function enableExtension($extension) {
         $currentPhpVersion = $this->brew->linkedPhp();
-        if(!$this->brew->installed($currentPhpVersion.'-xdebug')) {
-            $this->brew->ensureInstalled($currentPhpVersion.'-xdebug');
+        
+        if(!$this->brew->installed($currentPhpVersion.'-'.$extension)) {
+            $this->brew->ensureInstalled($currentPhpVersion.'-'.$extension);
         }
 
         $iniPath = $this->iniPath();
 
-        if($this->files->exists($iniPath.'ext-xdebug.ini')) {
-            info('xdebug was already enabled.');
+        if($this->files->exists($iniPath.'ext-'.$extension.'.ini')) {
+            info($extension.' was already enabled.');
             $this->restart();
             return true;
         }
 
-        if($this->files->exists($iniPath.'ext-xdebug.ini.disabled')) {
-            $this->files->move($iniPath.'ext-xdebug.ini.disabled', $iniPath.'ext-xdebug.ini');
+        if($this->files->exists($iniPath.'ext-'.$extension.'.ini.disabled')) {
+            $this->files->move($iniPath.'ext-'.$extension.'.ini.disabled', $iniPath.'ext-'.$extension.'.ini');
         }
 
         $this->restart();
 
-        info('Enabled xdebug');
+        info('Enabled '.$extension);
         return true;
     }
 
-    function disableXdebug() {
+    function disableExtension($extension) {
         $iniPath = $this->iniPath();
-        if($this->files->exists($iniPath.'ext-xdebug.ini.disabled')) {
-            info('xdebug was already disabled.');
+        if($this->files->exists($iniPath.'ext-'.$extension.'.ini.disabled')) {
+            info($extension.' was already disabled.');
             return true;
         }
 
-        if($this->files->exists($iniPath.'ext-xdebug.ini')) {
-            $this->files->move($iniPath.'ext-xdebug.ini', $iniPath.'ext-xdebug.ini.disabled');
+        if($this->files->exists($iniPath.'ext-'.$extension.'.ini')) {
+            $this->files->move($iniPath.'ext-'.$extension.'.ini', $iniPath.'ext-'.$extension.'.ini.disabled');
         }
 
         $this->restart();
 
-        info('Disabled xdebug');
+        info('Disabled '.$extension);
         return true;
+    }
+
+    function isExtensionEnabled($extension) {
+
+      $currentPhpVersion = $this->brew->linkedPhp();
+
+      if(!$this->brew->installed($currentPhpVersion.'-'.$extension)) {
+          $this->brew->ensureInstalled($currentPhpVersion.'-'.$extension);
+      }
+
+      $iniPath = $this->iniPath();
+
+      if($this->files->exists($iniPath.'ext-'.$extension.'.ini')) {
+          info($extension.' is enabled.');
+      } else {
+          info($extension.' is disabled.');
+      }
+
+      return true;
     }
 }
