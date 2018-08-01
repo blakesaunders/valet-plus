@@ -60,7 +60,7 @@ Here are a few key differences compared to the original Valet:
 
 > :warning: Valet+ requires macOS and [Homebrew](https://brew.sh/). Before installation, you should make sure that no other programs such as Apache or Nginx are binding to your local machine's port 80.
 
-1. Install or update [Homebrew](https://brew.sh/) to the latest version using brew update.
+1. Install or update [Homebrew](https://brew.sh/) to the latest version using `brew update`.
 2. Install PHP 7.1 using Homebrew via `brew install php@7.1`.
 3. Install Composer using Homebrew via `brew install composer`.
 4. Install Valet+ with Composer via `composer global require weprovide/valet-plus`.
@@ -329,6 +329,14 @@ Open current git project in [PhpStorm](https://www.jetbrains.com/phpstorm/)
 valet phpstorm
 ```
 
+## SourceTree
+
+Open current git project in [SourceTree](https://www.sourcetreeapp.com/)
+
+```
+valet sourcetree
+```
+
 ## VScode
 
 Open current git project in [Visual Studio Code](https://code.visualstudio.com/)
@@ -390,6 +398,10 @@ The `nginx-error.log`, `php.log` and `mysql.log` are located at `~/.valet/Log`.
 
 Other logs are located at `/usr/local/var/log`
 
+## PHP.ini location
+
+The PHP.ini location is `/usr/local/etc/php/VERSION/php.ini`.
+
 ## Valet drivers
 Valet uses drivers to handle requests. You can read more about those [here](https://laravel.com/docs/5.4/valet#custom-valet-drivers).
 
@@ -416,6 +428,7 @@ By default these are included:
 - Neos
 - Craft
 - Pimcore 5
+- Shopware 5
 
 A full list can be found [here](cli/drivers).
 
@@ -546,3 +559,5 @@ This project is a fork of [laravel/valet](https://github.com/laravel/valet). Tha
 ## Valet+ Authors
 
 - Tim Neutkens ([@timneutkens](https://github.com/timneutkens))
+- Lou van der Laarse ([@Neodork](https://github.com/Neodork))
+- Sam Granger ([@samgranger](https://github.com/samgranger))

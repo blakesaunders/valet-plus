@@ -14,6 +14,7 @@ use Silly\Application;
 use Illuminate\Container\Container;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use SebastianBergmann\Version;
+use Symfony\Component\Console\Question\Question;
 
 /**
  * Create the application.
@@ -21,7 +22,7 @@ use SebastianBergmann\Version;
 Container::setInstance(new Container);
 
 // get current version based on git describe and tags
-$version = new Version('0.0.0' , __DIR__ . '/../');
+$version = new Version('1.0.19' , __DIR__ . '/../');
 
 $app = new Application('Valet+', $version->getVersion());
 
@@ -51,7 +52,7 @@ $app->command('install [--with-mariadb]', function ($withMariadb) {
     Nginx::install();
     PhpFpm::install();
     DnsMasq::install();
-    Mysql::install($withMariadb ? 'mariadb' : 'mysql');
+    Mysql::install($withMariadb ? 'mariadb' : 'mysql@5.7');
     RedisTool::install();
     Mailhog::install();
     Nginx::restart();
@@ -64,8 +65,9 @@ $app->command('install [--with-mariadb]', function ($withMariadb) {
 /**
  * Fix common problems within the Valet+ installation.
  */
-$app->command('fix', function () {
-    PhpFpm::fix();
+$app->command('fix [--reinstall]', function ($reinstall) {
+    PhpFpm::fix($reinstall);
+    Pecl::fix();
 })->descriptions('Fixes common installation problems that prevent Valet+ from working');
 
 /**
@@ -114,11 +116,15 @@ if (is_dir(VALET_HOME_PATH)) {
     /**
      * Register a symbolic link with Valet.
      */
-    $app->command('link [name] [--secure]', function ($name, $secure) {
+    $app->command('link [name] [--secure] [--proxy]', function ($name, $secure, $proxy) {
         $domain = Site::link(getcwd(), $name = $name ?: basename(getcwd()));
 
         if ($secure) {
             $this->runCommand('secure '.$name);
+        }
+
+        if ($proxy) {
+            $this->runCommand('proxy '.$name);
         }
 
         info('Current working directory linked to '.$domain);
@@ -127,7 +133,7 @@ if (is_dir(VALET_HOME_PATH)) {
     /**
      * Register a subdomain link with Valet.
      */
-    $app->command('subdomain [action] [name] [--secure]', function ($action, $name, $secure) {
+    $app->command('subdomain [action] [name] [--secure] [--proxy]', function ($action, $name, $secure, $proxy) {
         if($action === 'list') {
             $links = Site::links(basename(getcwd()));
 
@@ -142,7 +148,18 @@ if (is_dir(VALET_HOME_PATH)) {
                 $this->runCommand('secure '. $name);
             }
 
+            if ($proxy) {
+                $this->runCommand('proxy '.$name);
+            }
+
             info('Current working directory linked to '.$domain);
+            return;
+        }
+
+        if($action === 'remove') {
+            Site::unlink($name.'.'.basename(getcwd()));
+
+            info('Current working directory unlinked from '.$name.'.'.basename(getcwd()));
             return;
         }
 
@@ -188,7 +205,11 @@ if (is_dir(VALET_HOME_PATH)) {
     $app->command('unsecure [domain]', function ($domain = null) {
         $url = ($domain ?: Site::host(getcwd())).'.'.Configuration::read()['domain'];
 
+        $proxied = Site::proxied($url);
         Site::unsecure($url);
+        if ($proxied) {
+            Site::proxy($url, $proxied);
+        }
 
         PhpFpm::restart();
 
@@ -432,6 +453,7 @@ if (is_dir(VALET_HOME_PATH)) {
     $app->command('uninstall', function () {
         Binaries::uninstallBinaries();
         Pecl::uninstallExtensions();
+        PeclCustom::uninstallExtensions();
         DevTools::uninstall();
         Nginx::uninstall();
         Mysql::uninstall();
@@ -459,13 +481,7 @@ if (is_dir(VALET_HOME_PATH)) {
      * Switch between versions of PHP
      */
     $app->command('use [phpVersion]', function ($phpVersion) {
-        $switched = PhpFpm::switchTo($phpVersion);
-
-        if(!$switched) {
-            info('Already on this version');
-            return;
-        }
-        info('Valet is now using php@'.$phpVersion.'.');
+        PhpFpm::switchTo($phpVersion);
     })->descriptions('Switch between versions of PHP');
 
     /**
@@ -550,6 +566,16 @@ if (is_dir(VALET_HOME_PATH)) {
             if(!$name) {
                 throw new Exception('Please provide a dump file');
             }
+
+            // check if database already exists.
+            if(Mysql::isDatabaseExists($optional)){
+                $question = new ConfirmationQuestion('Database already exists are you sure you want to continue? [y/N] ', FALSE);
+                if (!$helper->ask($input, $output, $question)) {
+                    warning('Aborted');
+                    return;
+                }
+            }
+            
             Mysql::importDatabase($name, $optional);
             return;
         }
@@ -585,18 +611,20 @@ if (is_dir(VALET_HOME_PATH)) {
     })->descriptions('Configure application connection settings');
 
     $app->command('xdebug [mode] [--remote_autostart=]', function ($input, $mode) {
-        $modes = ['on', 'enable', 'off', 'disable', 'status'];
+        $modes = ['on', 'enable', 'off', 'disable'];
 
         if (!in_array($mode, $modes)) {
-            throw new Exception('Mode not found. Available modes: '.implode(', ', $modes));
-        }
-
-        if ($mode == '' || $mode == 'status') {
-            Pecl::isInstalled('xdebug');
-            return;
+            throw new Exception('Mode not found. Available modes: ' . implode(', ', $modes));
         }
 
         $restart = false;
+
+        if (Pecl::isInstalled('xdebug') === false) {
+            info('[PECL] Xdebug not found, installing...');
+            Pecl::installExtension('xdebug');
+            $restart = true;
+        }
+
         $defaults = $input->getOptions();
         if (isset($defaults['remote_autostart'])) {
             if ($defaults['remote_autostart']) {
@@ -607,57 +635,53 @@ if (is_dir(VALET_HOME_PATH)) {
             $restart = true;
         }
 
-        $phpVersion = Brew::linkedPhp();
-
-        if (Pecl::installed('xdebug') === false && ($mode === 'on' || $mode === 'enable')) {
-            info("[php@$phpVersion] Installing xdebug extension");
-            $restart = Pecl::installExtension('xdebug', $phpVersion);
-        }elseif($mode === 'on' || $mode === 'enable'){
-            info("[php@$phpVersion] xdebug extension is already installed");
+        if (Pecl::isEnabled('xdebug') === false && ($mode === 'on' || $mode === 'enable')) {
+            info("[PECL] Enabling xdebug extension");
+            $restart = true;
+            Pecl::enable('xdebug');
+        } elseif ($mode === 'on' || $mode === 'enable') {
+            info("[PECL] Xdebug extension is already enabled!");
         }
 
-        if (Pecl::installed('xdebug') === true && ($mode === 'off' || $mode === 'disable')) {
-            info("[php@$phpVersion] Uninstalling xdebug extension");
-            $restart = Pecl::uninstallExtension('xdebug', $phpVersion);
-        }elseif($mode === 'off' || $mode === 'disable'){
-            info("[php@$phpVersion] xdebug extension is already uninstalled");
+        if (Pecl::isEnabled('xdebug') === true && ($mode === 'off' || $mode === 'disable')) {
+            info("[PECL] Disabling xdebug extension");
+            $restart = true;
+            Pecl::disable('xdebug');
+        } elseif ($mode === 'off' || $mode === 'disable') {
+            info("[PECL] Xdebug extension is already uninstalled!");
         }
 
         if ($restart) {
             PhpFpm::restart();
         }
-
-        return;
     })->descriptions('Enable / disable Xdebug');
 
     $app->command('ioncube [mode]', function ($mode) {
-        $modes = ['on', 'enable', 'off', 'disable', 'status'];
+        $modes = ['on', 'enable', 'off', 'disable'];
 
         if (!in_array($mode, $modes)) {
             throw new Exception('Mode not found. Available modes: '.implode(', ', $modes));
         }
 
-        $phpVersion = Brew::linkedPhp();
-
-        if ($mode == '' || $mode == 'status') {
-            Pecl::isInstalled('ioncube_loader_dar');
-            return;
+        if (PeclCustom::isInstalled('ioncube_loader_dar') === false) {
+            info('[PECL-CUSTOM] Ioncube loader not found, installing...');
+            PeclCustom::installExtension('ioncube_loader_dar');
         }
 
-        if (Pecl::installed('ioncube_loader_dar') === false && ($mode === 'on' || $mode === 'enable')) {
-            info("[php@$phpVersion] Installing ioncube_loader_dar extension");
-            $restart = Pecl::installExtension('ioncube_loader_dar');
+        if (PeclCustom::isEnabled('ioncube_loader_dar') === false && ($mode === 'on' || $mode === 'enable')) {
+            info("[PECL-CUSTOM] Enabling ioncube_loader_dar extension");
+            PeclCustom::enable('ioncube_loader_dar');
             PhpFpm::restart();
         }elseif($mode === 'on' || $mode === 'enable'){
-            info("[php@$phpVersion] ioncube_loader_dar extension is already installed");
+            info("[PECL-CUSTOM] ioncube_loader_dar extension is already installed");
         }
 
-        if (Pecl::installed('ioncube_loader_dar') === true && ($mode === 'off' || $mode === 'disable')) {
-            info("[php@$phpVersion] Uninstalling ioncube_loader_dar extension");
-            $restart = Pecl::uninstallExtension('ioncube_loader_dar');
+        if (PeclCustom::isEnabled('ioncube_loader_dar') === true && ($mode === 'off' || $mode === 'disable')) {
+            info("[PECL-CUSTOM] Disabling ioncube_loader_dar extension");
+            PeclCustom::disable('ioncube_loader_dar');
             PhpFpm::restart();
         }elseif($mode === 'off' || $mode === 'disable'){
-            info("[php@$phpVersion] ioncube_loader_dar extension is already uninstalled");
+            info("[PECL-CUSTOM] ioncube_loader_dar extension is already uninstalled");
         }
     })->descriptions('Enable / disable ioncube');
 
@@ -696,6 +720,10 @@ if (is_dir(VALET_HOME_PATH)) {
         DevTools::phpstorm();
     })->descriptions('Open closest git project in PHPstorm');
 
+    $app->command('sourcetree', function () {
+        DevTools::sourcetree();
+    })->descriptions('Open closest git project in SourceTree');
+
     $app->command('vscode', function () {
         DevTools::vscode();
     })->descriptions('Open closest git project in Visual Studio Code');
@@ -703,6 +731,35 @@ if (is_dir(VALET_HOME_PATH)) {
     $app->command('ssh-key', function () {
         DevTools::sshkey();
     })->descriptions('Copy ssh key');
+
+    /**
+     * Proxy commands
+     */
+    $app->command('proxy [url]', function ($input, $output, $url = null) {
+        $url = ($url ?: Site::host(getcwd())).'.'.Configuration::read()['domain'];
+        $helper = $this->getHelperSet()->get('question');
+        $question = new Question('Where would you like to proxy this url to? ');
+        if (!$to = $helper->ask($input, $output, $question)) {
+            warning('Aborting, url is required');
+        }
+
+        Site::proxy($url, $to);
+
+        PhpFpm::restart();
+        Nginx::restart();
+
+        info("The [$url] will now proxy traffic to [$to].");
+    })->descriptions('Enable proxying for a site instead of handling it with a Valet driver. Useful for SPAs and Swoole applications.');
+
+    $app->command('unproxy [url]', function ($url = null) {
+        $url = ($url ?: Site::host(getcwd())).'.'.Configuration::read()['domain'];
+        Site::proxy($url);
+
+        PhpFpm::restart();
+        Nginx::restart();
+
+        info("The [$url] will no longer proxy traffic and will use the Valet driver instead.");
+    })->descriptions('Disable proxying for a site re-instating handling with a Valet driver.');
 }
 
 /**
